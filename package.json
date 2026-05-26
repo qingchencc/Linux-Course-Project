@@ -1,0 +1,12 @@
+{
+  "name": "linux-course-project",
+  "version": "1.0.0",
+  "description": "智能服药提醒系统",
+  "main": "web/app.js",
+  "scripts": {
+    "start": "node web/app.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  }
+}

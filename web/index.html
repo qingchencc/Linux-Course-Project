@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>智能服药提醒系统</title>
+    <link rel="stylesheet" href="index.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>服药管理助手</h1>
+            <p>智能服药提醒与健康管理平台</p>
+        </header>
+
+        <!-- 系统状态概览 -->
+        <div class="card">
+            <h2>系统状态</h2>
+            <div id="statusPanel">加载中...</div>
+        </div>
+
+        <!-- 药品管理 -->
+        <div class="card">
+            <h2>药品管理</h2>
+            <div class="settings-group">
+                <input type="text" id="medName" placeholder="药品名称">
+                <input type="time" id="medTime">
+                <button class="btn-primary" onclick="addMedication()">添加药品</button>
+            </div>
+            <ul id="medList" class="record-list" style="margin-top: 15px;">
+                <li>加载中...</li>
+            </ul>
+        </div>
+
+        <!-- 服药记录 -->
+        <div class="card">
+            <h2>服药记录</h2>
+            <div style="margin-bottom: 15px;">
+                <button class="btn-primary" onclick="loadRecords()">刷新记录</button>
+                <button class="btn-secondary" onclick="clearRecords()">清空记录</button>
+            </div>
+            <ul id="recordList" class="record-list">
+                <li>加载中...</li>
+            </ul>
+        </div>
+
+        <!-- 服药统计 -->
+        <div class="card">
+            <h2>服药统计</h2>
+            <div id="auditPanel">加载中...</div>
+        </div>
+
+        <!-- 服务控制 -->
+        <div class="card">
+            <h2>服务管理</h2>
+            <div id="servicePanel" class="service-buttons">
+                <span>加载中...</span>
+            </div>
+        </div>
+
+        <!-- 快捷服药 -->
+        <div class="card">
+            <h2>快捷服药</h2>
+            <div id="quickTake" style="display: flex; gap: 10px; flex-wrap: wrap;">
+                <span>加载中...</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ── 工具函数 ──────────────────────────────
+        function API(url, opts) {
+            opts = opts || {};
+            var headers = opts.headers || {};
+            headers['Content-Type'] = 'application/json';
+            var fetchOpts = { headers: headers };
+            if (opts.method) fetchOpts.method = opts.method;
+            if (opts.body) fetchOpts.body = opts.body;
+            return fetch(url, fetchOpts).then(function(r) {
+                if (!r.ok) {
+                    return r.json().then(function(data) {
+                        throw new Error(data.message || '请求失败 (HTTP ' + r.status + ')');
+                    }).catch(function() {
+                        throw new Error('请求失败 (HTTP ' + r.status + ')');
+                    });
+                }
+                return r.json();
+            }).catch(function(err) {
+                alert('操作失败: ' + (err.message || '网络错误，请检查服务是否运行'));
+                throw err;
+            });
+        }
+
+        function showError(msg) {
+            alert('错误: ' + msg);
+        }
+
+        // ── 页面初始化 ────────────────────────────
+        function init() {
+            loadStatus();
+            loadMedications();
+            loadRecords();
+            loadAudit();
+            loadServices();
+            loadQuickTake();
+        }
+
+        // ── 系统状态 ──────────────────────────────
+        function loadStatus() {
+            API('/api/status').then(function(res) {
+                if (!res.success) return;
+                var d = res.data;
+                var statuses = Object.keys(d.services).map(function(k) {
+                    return k + ': ' + (d.services[k] ? '运行中' : '已停止');
+                }).join(' | ');
+                document.getElementById('statusPanel').innerHTML =
+                    '<div><strong>磁盘:</strong> 已用 ' + d.diskUsed + ' / 可用 ' + d.diskAvail + ' (' + d.diskUsage + ')</div>' +
+                    '<div><strong>日志大小:</strong> ' + d.logSize + '</div>' +
+                    '<div><strong>药品数量:</strong> ' + d.medicationCount + '</div>' +
+                    '<div><strong>服务状态:</strong> ' + statuses + '</div>' +
+                    '<div><strong>运行平台:</strong> ' + (d.platform || 'N/A') + '</div>';
+            }).catch(function() {});
+        }
+
+        // ── 药品管理 ──────────────────────────────
+        function loadMedications() {
+            API('/api/medications').then(function(res) {
+                var list = document.getElementById('medList');
+                if (!res.success || !res.data.length) {
+                    list.innerHTML = '<li>暂无药品，请添加</li>';
+                    loadQuickTake();
+                    return;
+                }
+                list.innerHTML = res.data.map(function(m) {
+                    return '<li>' +
+                        '<span>' + m.name + ' — ' + m.time + '</span>' +
+                        '<span>' +
+                            '<button class="btn-sm" onclick="takeMed(\'' + m.name.replace(/'/g, "\\'") + '\',\'' + m.time + '\')">服药</button>' +
+                            '<button class="btn-sm btn-danger" onclick="deleteMed(\'' + m.name.replace(/'/g, "\\'") + '\')">删除</button>' +
+                        '</span>' +
+                    '</li>';
+                }).join('');
+                loadQuickTake();
+            }).catch(function() {});
+        }
+
+        function addMedication() {
+            var nameEl = document.getElementById('medName');
+            var timeEl = document.getElementById('medTime');
+            var name = nameEl.value.trim();
+            var time = timeEl.value;
+            if (!name || !time) return alert('请填写药品名称和时间');
+            if (!/^\d{2}:\d{2}$/.test(time)) return alert('时间格式不正确，请使用 HH:MM 格式');
+
+            API('/api/medications', {
+                method: 'POST',
+                body: JSON.stringify({ name: name, time: time })
+            }).then(function(res) {
+                alert(res.message);
+                if (res.success) {
+                    nameEl.value = '';
+                    timeEl.value = '';
+                    loadMedications();
+                    loadStatus();
+                    loadQuickTake();
+                }
+            }).catch(function() {});
+        }
+
+        function deleteMed(name) {
+            if (!confirm('确定删除药品 "' + name + '"？')) return;
+            API('/api/medications/' + encodeURIComponent(name), { method: 'DELETE' })
+                .then(function(res) {
+                    alert(res.message);
+                    if (res.success) { loadMedications(); loadQuickTake(); }
+                }).catch(function() {});
+        }
+
+        function takeMed(name, time) {
+            API('/api/take-medication', {
+                method: 'POST',
+                body: JSON.stringify({ name: name, time: time })
+            }).then(function(res) {
+                alert(res.message);
+                loadRecords();
+                loadAudit();
+            }).catch(function() {});
+        }
+
+        // ── 服药记录 ──────────────────────────────
+        function loadRecords() {
+            API('/api/get-records').then(function(res) {
+                var list = document.getElementById('recordList');
+                if (!res.success || !res.data.length) {
+                    list.innerHTML = '<li>暂无服药记录</li>';
+                    return;
+                }
+                list.innerHTML = res.data.slice(-50).reverse().map(function(r) {
+                    return '<li>' + r + '</li>';
+                }).join('');
+            }).catch(function() {});
+        }
+
+        function clearRecords() {
+            if (!confirm('确定清空所有服药记录？此操作不可恢复。')) return;
+            API('/api/clear-records', { method: 'DELETE' })
+                .then(function(res) {
+                    alert(res.message);
+                    loadRecords();
+                    loadAudit();
+                }).catch(function() {});
+        }
+
+        // ── 服药统计 ──────────────────────────────
+        function loadAudit() {
+            API('/api/audit').then(function(res) {
+                if (!res.success) return;
+                var d = res.data;
+                document.getElementById('auditPanel').innerHTML =
+                    '总次数: <strong>' + d.total + '</strong> | ' +
+                    '已服: <strong>' + d.taken + '</strong> | ' +
+                    '服药率: <strong>' + d.rate + '</strong>';
+            }).catch(function() {});
+        }
+
+        // ── 服务管理 ──────────────────────────────
+        function loadServices() {
+            API('/api/status').then(function(res) {
+                if (!res.success) return;
+                var panel = document.getElementById('servicePanel');
+                var services = ['daemon', 'guardian', 'remind', 'parser'];
+                var labels = { daemon: '后台守护', guardian: '服务守护', remind: '提醒服务', parser: '配置解析' };
+                panel.innerHTML = services.map(function(s) {
+                    var running = res.data.services[s];
+                    return '<div class="service-row">' +
+                        '<span>' + labels[s] + ': ' + (running ? '运行中' : '已停止') + '</span>' +
+                        '<span>' +
+                            '<button class="btn-sm" onclick="ctrlService(\'' + s + '\',\'start\')">启动</button>' +
+                            '<button class="btn-sm" onclick="ctrlService(\'' + s + '\',\'stop\')">停止</button>' +
+                            '<button class="btn-sm" onclick="ctrlService(\'' + s + '\',\'restart\')">重启</button>' +
+                        '</span>' +
+                    '</div>';
+                }).join('');
+            }).catch(function() {});
+        }
+
+        function ctrlService(service, action) {
+            API('/api/service/' + action, {
+                method: 'POST',
+                body: JSON.stringify({ service: service })
+            }).then(function(res) {
+                alert(res.message);
+                loadServices();
+                loadStatus();
+            }).catch(function() {});
+        }
+
+        // ── 快捷服药按钮 ────────────────────────
+        function loadQuickTake() {
+            API('/api/medications').then(function(res) {
+                var panel = document.getElementById('quickTake');
+                if (!res.success || !res.data.length) {
+                    panel.innerHTML = '<span>暂无药品，请先添加</span>';
+                    return;
+                }
+                panel.innerHTML = res.data.map(function(m) {
+                    return '<button class="btn-primary" onclick="takeMed(\'' +
+                        m.name.replace(/'/g, "\\'") + '\',\'' + m.time + '\')">' +
+                        m.name + ' (' + m.time + ')' +
+                    '</button>';
+                }).join('');
+            }).catch(function() {});
+        }
+
+        // ── 启动 ──────────────────────────────────
+        init();
+    </script>
+</body>
+</html>
