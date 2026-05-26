@@ -19,7 +19,7 @@ WORKDIR /app/Linux-Course-Project
 # 将本地当前目录下的所有脚本和配置拷贝进镜像 [cite: 16, 30]
 COPY . .
 
-# 赋予所有 .sh 脚本执行权限，这是成员 C 负责的自动化工作 
+# 赋予所有 .sh 脚本执行权限
 RUN chmod +x *.sh
 
 # 启动 cron 守护进程，支持项目的 7x24 小时运行目标 [cite: 12, 18]
