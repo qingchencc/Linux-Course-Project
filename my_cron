@@ -1,0 +1,3 @@
+00 08 * * * /home/pi/guardian_project/notify.sh 维生素C
+00 14 * * * /home/pi/guardian_project/notify.sh 降压药
+00 20 * * * /home/pi/guardian_project/notify.sh 复合维生素
