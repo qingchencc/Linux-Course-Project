@@ -23,7 +23,13 @@ const SCRIPTS = {
     logCleaner: path.join(PROJECT_ROOT, 'log_cleaner.sh'),
 };
 
-app.use(express.json());
+// 只对携带 body 的请求解析 JSON，避免 GET 请求的 Content-Type 头触发空 body 解析报错
+app.use((req, res, next) => {
+    if (['POST', 'PUT', 'PATCH'].includes(req.method)) {
+        return express.json()(req, res, next);
+    }
+    next();
+});
 app.use(express.static(__dirname, { maxAge: 0 }));
 
 // 确保日志目录存在
@@ -103,6 +109,74 @@ function getDiskUsage() {
     }
 }
 
+// ── 服务端定时提醒调度器（关闭浏览器也能弹窗）─────────────
+
+const activeTimers = [];
+
+function clearAllReminders() {
+    activeTimers.forEach(t => clearTimeout(t));
+    activeTimers.length = 0;
+}
+
+/** 计算距离下一个 HH:MM 时间的毫秒数 */
+function msUntilTime(timeStr) {
+    const [h, m] = timeStr.split(':').map(Number);
+    const now = new Date();
+    const target = new Date(now);
+    target.setHours(h, m, 0, 0);
+    if (target <= now) target.setDate(target.getDate() + 1);
+    return target.getTime() - now.getTime();
+}
+
+/** 操作系统级弹窗（Windows: 消息框, Linux: notify-send） */
+function sendSystemNotification(meds) {
+    const names = meds.map(m => m.name).join('、');
+    const isWin = os.platform() === 'win32';
+
+    if (isWin) {
+        const ps = `Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.MessageBox]::Show('请按时服用: ${names}','服药提醒','OK','Warning')`;
+        exec(`powershell -Command "${ps.replace(/"/g, '\\"')}"`, { timeout: 10000 }, (err) => {
+            if (err) exec(`msg * "服药提醒: ${names}"`, { timeout: 5000 }, () => {});
+        });
+    } else {
+        exec(`notify-send "服药提醒" "请服用: ${names}" --urgency=critical 2>/dev/null || wall "服药提醒: ${names}"`, { timeout: 5000 }, () => {});
+    }
+    console.log(`[${new Date().toISOString()}] 系统弹窗: ${names}`);
+}
+
+/** 读取 meds.conf 并按时间分组，为每组注册下一次提醒定时器 */
+function scheduleAllReminders() {
+    clearAllReminders();
+    const meds = readMedsConf();
+    if (!meds.length) {
+        console.log('[提醒调度] 暂无药品，跳过');
+        return;
+    }
+
+    // 按时间分组（同一时间多种药合并提醒）
+    const groups = {};
+    meds.forEach(m => {
+        if (!groups[m.time]) groups[m.time] = [];
+        groups[m.time].push(m);
+    });
+
+    Object.entries(groups).forEach(([time, groupMeds]) => {
+        const delay = msUntilTime(time);
+        const timer = setTimeout(() => {
+            sendSystemNotification(groupMeds);
+            // 触发后注册明天的同一时间
+            const nextDelay = msUntilTime(time);
+            const nextTimer = setTimeout(() => {
+                sendSystemNotification(groupMeds);
+                scheduleAllReminders(); // 每天重新加载最新配置
+            }, nextDelay);
+            activeTimers.push(nextTimer);
+        }, delay);
+        activeTimers.push(timer);
+        console.log(`[提醒调度] ${groupMeds.map(m => m.name).join('、')} → 每天 ${time} (${Math.round(delay / 60000)} 分钟后首次触发)`);
+    });
+}
+
 // ── 药品管理 API ──────────────────────────────────────────
 
 // 获取所有药品列表
@@ -129,6 +203,7 @@ app.post('/api/medications', (req, res, next) => {
         }
         meds.push({ name, time });
         writeMedsConf(meds);
+        scheduleAllReminders();
         res.json({ success: true, message: '添加成功' });
     } catch (e) { next(e); }
 });
@@ -147,6 +222,7 @@ app.put('/api/medications/:name', (req, res, next) => {
         }
         meds[idx].time = time;
         writeMedsConf(meds);
+        scheduleAllReminders();
         res.json({ success: true, message: '更新成功' });
     } catch (e) { next(e); }
 });
@@ -160,6 +236,7 @@ app.delete('/api/medications/:name', (req, res, next) => {
             return res.status(404).json({ success: false, message: '药品不存在' });
         }
         writeMedsConf(filtered);
+        scheduleAllReminders();
         res.json({ success: true, message: '删除成功' });
     } catch (e) { next(e); }
 });
@@ -397,6 +474,21 @@ app.post('/api/clean-logs', async (req, res, next) => {
     } catch (e) { next(e); }
 });
 
+// ── 提醒调度状态 API ──────────────────────────────────────
+
+app.get('/api/reminder-status', (_req, res) => {
+    const meds = readMedsConf();
+    const now = new Date();
+    const list = meds.map(m => {
+        const [h, mm] = m.time.split(':').map(Number);
+        const next = new Date(now);
+        next.setHours(h, mm, 0, 0);
+        if (next <= now) next.setDate(next.getDate() + 1);
+        return { name: m.name, time: m.time, nextTrigger: next.toISOString(), minutesUntil: Math.round((next - now) / 60000) };
+    }).sort((a, b) => a.minutesUntil - b.minutesUntil);
+    res.json({ success: true, data: { activeTimers: activeTimers.length, medications: list } });
+});
+
 // ── 全局错误处理中间件 ────────────────────────────────────
 
 app.use((err, _req, res, _next) => {
@@ -412,4 +504,5 @@ app.listen(PORT, '0.0.0.0', () => {
     console.log(`  本地访问: http://localhost:${PORT}`);
     console.log(`  项目目录: ${PROJECT_ROOT}`);
     console.log(`  运行平台: ${os.platform()}`);
+    scheduleAllReminders();
 });
