@@ -1,3 +1,5 @@
 node_modules/
 guardian.log
 log/med_history.log
+coverage/
+.nyc_output/

@@ -499,10 +499,16 @@ app.use((err, _req, res, _next) => {
 // ── 启动服务 ──────────────────────────────────────────────
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, '0.0.0.0', () => {
-    console.log(`[${new Date().toISOString()}] 智能服药提醒系统 Web 服务已启动`);
-    console.log(`  本地访问: http://localhost:${PORT}`);
-    console.log(`  项目目录: ${PROJECT_ROOT}`);
-    console.log(`  运行平台: ${os.platform()}`);
-    scheduleAllReminders();
-});
+
+// 仅在直接运行时启动（被 require 时不启动，方便测试）
+if (require.main === module) {
+    app.listen(PORT, '0.0.0.0', () => {
+        console.log(`[${new Date().toISOString()}] 智能服药提醒系统 Web 服务已启动`);
+        console.log(`  本地访问: http://localhost:${PORT}`);
+        console.log(`  项目目录: ${PROJECT_ROOT}`);
+        console.log(`  运行平台: ${os.platform()}`);
+        scheduleAllReminders();
+    });
+}
+
+module.exports = app;
