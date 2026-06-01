@@ -5,7 +5,7 @@
 #
 # 用法: bash sync_schedule.sh
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONF_FILE="${SCRIPT_DIR}/med.conf"
 NOTIFY_SCRIPT="${SCRIPT_DIR}/notify.sh"
 CRON_OUT="${SCRIPT_DIR}/my_cron"

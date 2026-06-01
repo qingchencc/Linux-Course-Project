@@ -11,7 +11,7 @@
 #   kill $REMIND_PID 2>/dev/null               # 可正常停止
 # ──────────────────────────────────────────────────────────────
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONF_FILE="${SCRIPT_DIR}/meds.conf"
 PID_FILE="${SCRIPT_DIR}/log/remind.pid"
 LOG_FILE="${SCRIPT_DIR}/log/remind.log"

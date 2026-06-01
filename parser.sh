@@ -1,7 +1,7 @@
 #!/bin/bash
 # 职责：监控 meds.conf 变更，并校验格式
 # 1. 配置路径（动态检测项目根目录）
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONF_FILE="${SCRIPT_DIR}/meds.conf"
 
 # 2. 存储上一次的变更时间戳
