@@ -1,13 +1,20 @@
 #!/bin/bash
 # 职责：监控 meds.conf 变更，并校验格式
-# 1. 配置路径 (绝对路径)
-CONF_FILE="/app/Linux-Course-Project/meds.conf"
+# 1. 配置路径（动态检测项目根目录）
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+CONF_FILE="${SCRIPT_DIR}/meds.conf"
+
 # 2. 存储上一次的变更时间戳
 LAST_CHECK=""
+RUNNING=true
+
+# 优雅退出
+cleanup() { RUNNING=false; echo ""; echo "解析器正常退出"; }
+trap cleanup SIGTERM SIGINT SIGHUP
 
 echo "解析器启动，正在监控 $CONF_FILE 的变更..."
 
-while true; do
+while $RUNNING; do
     # 检查文件是否存在
     if [ -f "$CONF_FILE" ]; then
         # 获取文件的最后修改时间戳

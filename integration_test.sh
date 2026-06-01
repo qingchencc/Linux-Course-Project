@@ -69,12 +69,6 @@ check_contains() {
 }
 
 cleanup_test_env() {
-    # 还原 meds.conf
-    if [ -f meds.conf.bak ]; then
-        mv meds.conf.bak meds.conf
-    fi
-    # 清理测试生成的文件
-    rm -f test_oversize.log test_med_history.log
     # 杀掉测试启动的后台进程
     if [ -f /tmp/test_guardian.pid ]; then
         kill "$(cat /tmp/test_guardian.pid)" 2>/dev/null || true
@@ -88,6 +82,14 @@ cleanup_test_env() {
         kill "$(cat /tmp/test_remind.pid)" 2>/dev/null || true
         rm -f /tmp/test_remind.pid
     fi
+    # 清理测试中可能残留的 remind.sh（仅杀测试相关的）
+    pkill -f "remind.sh" 2>/dev/null || true
+    # 还原 meds.conf
+    if [ -f meds.conf.bak ]; then
+        mv meds.conf.bak meds.conf
+    fi
+    # 清理测试生成的文件
+    rm -f test_oversize.log test_med_history.log
 }
 
 trap cleanup_test_env EXIT

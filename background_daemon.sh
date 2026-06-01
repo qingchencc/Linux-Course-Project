@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# --- 路径定义：兼容老师的固定目录 ---
-PROJECT_DIR="/home/2350801303/Linux-Course-Project"
+# --- 路径定义：动态检测项目根目录 ---
+PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CONF_FILE="$PROJECT_DIR/meds.conf"
 LOG_FILE="$PROJECT_DIR/log/background.log"
 REMIND_SCRIPT="$PROJECT_DIR/remind.sh"
