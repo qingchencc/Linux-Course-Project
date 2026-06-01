@@ -226,6 +226,7 @@
             loadServices();
             loadQuickTake();
             startReminder();
+            checkPendingNotifications();
         }
 
         // ── 系统状态 ──────────────────────────────
@@ -448,7 +449,11 @@
                     }).catch(function() {});
                 });
             } else if (!taken) {
-                currentRemindMeds.forEach(function(m) { delete notifiedSet[m.name + '|' + m.time]; });
+                // 稍后提醒: 更新 notifiedSet 时间戳, 利用 checkReminders 中的 5 分钟冷却期
+                var now = new Date().getTime();
+                currentRemindMeds.forEach(function(m) {
+                    notifiedSet[m.name + '|' + m.time] = now;
+                });
             }
             currentRemindMeds = [];
         }
@@ -462,6 +467,18 @@
                 tick++;
                 if (tick % 10 === 0) refreshSchedule();
             }, 30000);
+        }
+
+        // ── 页面重新打开时检查遗漏的提醒 ──────────
+        function checkPendingNotifications() {
+            var lastCheck = localStorage.getItem('medLastCheck') || new Date(0).toISOString();
+            API('/api/pending-notifications?since=' + encodeURIComponent(lastCheck)).then(function(res) {
+                if (!res.success || !res.data || !res.data.length) return;
+                // 有未查看的通知，弹出提醒
+                showReminder(res.data);
+            }).catch(function() {});
+            // 更新最后检查时间
+            localStorage.setItem('medLastCheck', new Date().toISOString());
         }
 
         // ── 快捷服药 ──────────────────────────────

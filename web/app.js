@@ -12,6 +12,7 @@ const CONF_FILE = path.join(PROJECT_ROOT, 'meds.conf');
 const MED_CONF = path.join(PROJECT_ROOT, 'med.conf');
 const MY_CRON = path.join(PROJECT_ROOT, 'my_cron');
 const HISTORY_LOG = path.join(PROJECT_ROOT, 'log', 'med_history.log');
+const NOTIFY_LOG = path.join(PROJECT_ROOT, 'log', 'notifications.json');
 const LOG_DIR = path.join(PROJECT_ROOT, 'log');
 const SCRIPTS = {
     daemon: path.join(PROJECT_ROOT, 'background_daemon.sh'),
@@ -132,16 +133,36 @@ function msUntilTime(timeStr) {
 function sendSystemNotification(meds) {
     const names = meds.map(m => m.name).join('、');
     const isWin = os.platform() === 'win32';
+    const now = new Date().toISOString();
+
+    // 持久化通知记录（即使 OS 弹窗失败，客户端也能通过 API 拉取）
+    let notifications = [];
+    try {
+        if (fs.existsSync(NOTIFY_LOG)) {
+            notifications = JSON.parse(fs.readFileSync(NOTIFY_LOG, 'utf8'));
+        }
+    } catch (_) { notifications = []; }
+    meds.forEach(m => {
+        notifications.push({ name: m.name, time: m.time, notifiedAt: now, seen: false });
+    });
+    // 只保留最近 200 条
+    if (notifications.length > 200) notifications = notifications.slice(-200);
+    try { fs.writeFileSync(NOTIFY_LOG, JSON.stringify(notifications), 'utf8'); } catch (_) {}
 
     if (isWin) {
         const ps = `Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.MessageBox]::Show('请按时服用: ${names}','服药提醒','OK','Warning')`;
         exec(`powershell -Command "${ps.replace(/"/g, '\\"')}"`, { timeout: 10000 }, (err) => {
-            if (err) exec(`msg * "服药提醒: ${names}"`, { timeout: 5000 }, () => {});
+            if (err) {
+                console.error(`[${now}] PowerShell 弹窗失败: ${err.message}, 尝试 msg 回退`);
+                exec(`msg * "服药提醒: ${names}"`, { timeout: 5000 }, () => {});
+            }
         });
     } else {
-        exec(`notify-send "服药提醒" "请服用: ${names}" --urgency=critical 2>/dev/null || wall "服药提醒: ${names}"`, { timeout: 5000 }, () => {});
+        exec(`notify-send "服药提醒" "请服用: ${names}" --urgency=critical 2>/dev/null || wall "服药提醒: ${names}"`, { timeout: 5000 }, (err) => {
+            if (err) console.error(`[${now}] Linux 桌面通知失败: ${err.message}`);
+        });
     }
-    console.log(`[${new Date().toISOString()}] 系统弹窗: ${names}`);
+    console.log(`[${now}] 系统弹窗: ${names}`);
 }
 
 /** 读取 meds.conf 并按时间分组，为每组注册下一次提醒定时器 */
@@ -487,6 +508,44 @@ app.get('/api/reminder-status', (_req, res) => {
         return { name: m.name, time: m.time, nextTrigger: next.toISOString(), minutesUntil: Math.round((next - now) / 60000) };
     }).sort((a, b) => a.minutesUntil - b.minutesUntil);
     res.json({ success: true, data: { activeTimers: activeTimers.length, medications: list } });
+});
+
+// ── 待处理通知 API（客户端拉取未查看的提醒）──────────────
+
+/** 获取自指定时间以来的未查看通知 */
+app.get('/api/pending-notifications', (req, res) => {
+    try {
+        const since = req.query.since ? new Date(req.query.since) : new Date(0);
+        if (!fs.existsSync(NOTIFY_LOG)) {
+            return res.json({ success: true, data: [] });
+        }
+        const notifications = JSON.parse(fs.readFileSync(NOTIFY_LOG, 'utf8'));
+        const pending = notifications.filter(n => !n.seen && new Date(n.notifiedAt) > since);
+        res.json({ success: true, data: pending });
+    } catch (e) {
+        res.json({ success: true, data: [] });
+    }
+});
+
+/** 将指定通知标记为已查看 */
+app.post('/api/mark-notifications-seen', (req, res) => {
+    try {
+        const { names, times } = req.body;
+        if (!names || !times || !Array.isArray(names) || !Array.isArray(times)) {
+            return res.status(400).json({ success: false, message: '参数格式错误' });
+        }
+        if (!fs.existsSync(NOTIFY_LOG)) {
+            return res.json({ success: true, message: '无通知记录' });
+        }
+        const notifications = JSON.parse(fs.readFileSync(NOTIFY_LOG, 'utf8'));
+        let count = 0;
+        notifications.forEach(n => {
+            const idx = names.findIndex((name, i) => name === n.name && times[i] === n.time);
+            if (idx !== -1 && !n.seen) { n.seen = true; count++; }
+        });
+        fs.writeFileSync(NOTIFY_LOG, JSON.stringify(notifications), 'utf8');
+        res.json({ success: true, message: `已标记 ${count} 条通知` });
+    } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 });
 
 // ── 全局错误处理中间件 ────────────────────────────────────
